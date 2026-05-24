@@ -40,6 +40,7 @@ export function VoidScreen({ navigation }: Props) {
         disabled={voidCount === 0}
       />
       <Button title="Create task" onPress={() => navigation.navigate('CreateTask')} />
+      <Button title="Archive" onPress={() => navigation.navigate('Archive')} />
     </View>
   );
 }

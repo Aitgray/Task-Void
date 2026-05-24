@@ -30,6 +30,11 @@ export function TaskScreen({ route, navigation }: Props) {
       .update(tasks)
       .set({ status, retained: 1, updated_at: Date.now() })
       .where(eq(tasks.id, task.id));
+    // Insert into FTS explicitly — don't rely on the trigger alone.
+    await db.$client.runAsync(
+      'INSERT INTO tasks_fts(id, title, keywords, archive_notes) VALUES (?, ?, ?, ?)',
+      [task.id, task.title, task.keywords ?? '', task.archive_notes ?? '']
+    );
     navigation.goBack();
   };
 
