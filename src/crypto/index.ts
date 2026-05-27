@@ -1,11 +1,10 @@
-import { gcm } from '@noble/ciphers/aes.js';
-import { pbkdf2 } from '@noble/hashes/pbkdf2.js';
-import { sha256 } from '@noble/hashes/sha2.js';
+// Key derivation: Web Crypto PBKDF2-SHA256 (native, non-blocking, RN 0.71+).
+// Symmetric encryption: tweetnacl secretbox (XSalsa20-Poly1305, CommonJS, sync).
+import * as nacl from 'tweetnacl';
 import * as SecureStore from 'expo-secure-store';
 
 const SALT_KEY = 'tv_salt';
 const VERIFY_KEY = 'tv_verify';
-// Known plaintext encrypted with the derived key — used to verify the password on unlock.
 const VERIFY_MSG = 'task-void-v1';
 
 function randomBytes(n: number): Uint8Array {
@@ -26,30 +25,42 @@ function fromHex(hex: string): Uint8Array {
   return bytes;
 }
 
-function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
-  const out = new Uint8Array(a.length + b.length);
-  out.set(a);
-  out.set(b, a.length);
-  return out;
+// Derives a 32-byte key using PBKDF2-SHA256 via the Web Crypto API.
+// Runs on the native thread — non-blocking even at 100k iterations.
+async function deriveKey(password: string, salt: Uint8Array): Promise<Uint8Array> {
+  // .buffer on a Uint8Array is typed as ArrayBufferLike; .slice() returns ArrayBuffer.
+  const pwBytes = new TextEncoder().encode(password);
+  const pwBuffer = pwBytes.buffer.slice(pwBytes.byteOffset, pwBytes.byteOffset + pwBytes.byteLength) as ArrayBuffer;
+  const saltBuffer = salt.buffer.slice(salt.byteOffset, salt.byteOffset + salt.byteLength) as ArrayBuffer;
+
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    pwBuffer,
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+  const cryptoKey = await crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: saltBuffer, iterations: 100_000, hash: 'SHA-256' },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    true, // extractable so we can get the raw bytes for tweetnacl
+    ['encrypt']
+  );
+  const raw = await crypto.subtle.exportKey('raw', cryptoKey);
+  return new Uint8Array(raw);
 }
 
-// PBKDF2-SHA256 key derivation. 100k iterations per OWASP guidance.
-// Synchronous — blocks the JS thread for ~200-500ms on device. Call after
-// yielding to the event loop (setTimeout) so any loading indicator can render.
-export function deriveKey(password: string, salt: Uint8Array): Uint8Array {
-  return pbkdf2(sha256, password, salt, { c: 100_000, dkLen: 32 });
-}
-
-// First-time private mode setup. Derives key, stores salt + verification blob
-// in the device Keychain/Keystore. Returns the derived key for the session.
 export async function setupPrivateMode(password: string): Promise<Uint8Array> {
   const salt = randomBytes(16);
-  const key = deriveKey(password, salt);
+  const key = await deriveKey(password, salt);
 
-  const nonce = randomBytes(12);
-  const cipher = gcm(key, nonce);
-  const ciphertext = cipher.encrypt(new TextEncoder().encode(VERIFY_MSG));
-  const verifyBlob = concat(nonce, ciphertext);
+  // Encrypt a known string; used to verify the password on future unlocks.
+  const nonce = randomBytes(nacl.secretbox.nonceLength);
+  const box = nacl.secretbox(new TextEncoder().encode(VERIFY_MSG), nonce, key);
+  const verifyBlob = new Uint8Array(nonce.length + box.length);
+  verifyBlob.set(nonce);
+  verifyBlob.set(box, nonce.length);
 
   await SecureStore.setItemAsync(SALT_KEY, toHex(salt));
   await SecureStore.setItemAsync(VERIFY_KEY, toHex(verifyBlob));
@@ -57,9 +68,6 @@ export async function setupPrivateMode(password: string): Promise<Uint8Array> {
   return key;
 }
 
-// Unlock: derive key from password, verify against stored blob.
-// Returns the key on success, null on wrong password, 'no-setup' if
-// SecureStore has been cleared (e.g. app reinstall).
 export async function unlockWithPassword(
   password: string
 ): Promise<Uint8Array | null | 'no-setup'> {
@@ -68,15 +76,15 @@ export async function unlockWithPassword(
   if (!saltHex || !verifyHex) return 'no-setup';
 
   const salt = fromHex(saltHex);
-  const key = deriveKey(password, salt);
+  const key = await deriveKey(password, salt);
 
   try {
     const blob = fromHex(verifyHex);
-    const nonce = blob.slice(0, 12);
-    const ciphertext = blob.slice(12);
-    const cipher = gcm(key, nonce);
-    const decrypted = new TextDecoder().decode(cipher.decrypt(ciphertext));
-    if (decrypted !== VERIFY_MSG) return null;
+    const nonce = blob.slice(0, nacl.secretbox.nonceLength);
+    const box = blob.slice(nacl.secretbox.nonceLength);
+    const decrypted = nacl.secretbox.open(box, nonce, key);
+    if (!decrypted) return null;
+    if (new TextDecoder().decode(decrypted) !== VERIFY_MSG) return null;
     return key;
   } catch {
     return null;
@@ -89,26 +97,27 @@ export async function clearPrivateModeKeys(): Promise<void> {
 }
 
 export function encryptField(key: Uint8Array, plaintext: string): string {
-  const nonce = randomBytes(12);
-  const cipher = gcm(key, nonce);
-  const ciphertext = cipher.encrypt(new TextEncoder().encode(plaintext));
-  return toHex(concat(nonce, ciphertext));
+  const nonce = randomBytes(nacl.secretbox.nonceLength);
+  const box = nacl.secretbox(new TextEncoder().encode(plaintext), nonce, key);
+  const blob = new Uint8Array(nonce.length + box.length);
+  blob.set(nonce);
+  blob.set(box, nonce.length);
+  return toHex(blob);
 }
 
 export function decryptField(key: Uint8Array, hexCiphertext: string): string {
   try {
     const blob = fromHex(hexCiphertext);
-    const nonce = blob.slice(0, 12);
-    const ciphertext = blob.slice(12);
-    const cipher = gcm(key, nonce);
-    return new TextDecoder().decode(cipher.decrypt(ciphertext));
+    const nonce = blob.slice(0, nacl.secretbox.nonceLength);
+    const box = blob.slice(nacl.secretbox.nonceLength);
+    const decrypted = nacl.secretbox.open(box, nonce, key);
+    if (!decrypted) return '[encrypted]';
+    return new TextDecoder().decode(decrypted);
   } catch {
     return '[encrypted]';
   }
 }
 
-// Convenience: returns a copy of a task with sensitive fields decrypted.
-// If the task isn't encrypted or no key is in session, returns it unchanged.
 export function decryptTaskFields<
   T extends {
     encrypted: number;
