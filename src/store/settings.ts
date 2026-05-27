@@ -11,6 +11,14 @@ interface SettingsState {
   setPrivateMode: (on: boolean) => void;
 }
 
+// Resolves when AsyncStorage hydration completes — even if you .then() it after
+// the fact, it still fires. Avoids the useEffect race condition where hydration
+// completes before the effect subscribes to onFinishHydration.
+let _resolveHydrated!: () => void;
+export const settingsHydrated = new Promise<void>((r) => {
+  _resolveHydrated = r;
+});
+
 export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
@@ -22,6 +30,9 @@ export const useSettings = create<SettingsState>()(
     {
       name: 'app-settings',
       storage: createJSONStorage(() => AsyncStorage),
+      onRehydrateStorage: () => (_state, error) => {
+        if (!error) _resolveHydrated();
+      },
     }
   )
 );

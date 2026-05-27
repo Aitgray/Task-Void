@@ -14,7 +14,7 @@ import { SettingsScreen } from './src/screens/SettingsScreen';
 import { SkipScreen } from './src/screens/SkipScreen';
 import { TaskScreen } from './src/screens/TaskScreen';
 import { VoidScreen } from './src/screens/VoidScreen';
-import { useSettings, useSession } from './src/store';
+import { useSettings, useSession, settingsHydrated } from './src/store';
 import { ThemeProvider, palettes } from './src/theme';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -22,17 +22,17 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export default function App() {
   const { success, error } = useMigrations(db, migrations);
   const [ftsReady, setFtsReady] = useState(false);
-  const [settingsReady, setSettingsReady] = useState(() => useSettings.persist.hasHydrated());
+  const [settingsReady, setSettingsReady] = useState(false);
 
   const { colorPalette, privateMode } = useSettings();
   const { encryptionKey } = useSession();
 
-  // Wait for Zustand to finish reading settings from AsyncStorage.
+  // settingsHydrated is a Promise that resolves when AsyncStorage finishes loading.
+  // Using a Promise (vs onFinishHydration) avoids a race where hydration completes
+  // before the useEffect subscribes — a resolved Promise always delivers its callback.
   useEffect(() => {
-    if (settingsReady) return;
-    const unsub = useSettings.persist.onFinishHydration(() => setSettingsReady(true));
-    return unsub;
-  }, [settingsReady]);
+    settingsHydrated.then(() => setSettingsReady(true));
+  }, []);
 
   // Rebuild the FTS index from the tasks table on every startup.
   useEffect(() => {
