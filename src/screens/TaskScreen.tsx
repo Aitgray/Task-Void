@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
-import { Archive, Check, Trash2, X } from 'lucide-react-native';
+import { Archive, Check, SkipForward, Trash2, X } from 'lucide-react-native';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { db } from '../db/client';
 import { tasks } from '../db/schema';
@@ -83,6 +83,15 @@ export function TaskScreen({ route, navigation }: Props) {
             <Text style={styles.btnLabel}>Drop · Gone</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Skip row */}
+        <TouchableOpacity
+          style={[styles.btn, styles.skipBtn]}
+          onPress={() => navigation.navigate('SkipTask', { taskId: task.id })}
+        >
+          <SkipForward size={28} />
+          <Text style={styles.btnLabel}>Skip · Requeue</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -125,6 +134,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
+  },
+  skipBtn: {
+    aspectRatio: undefined,
+    paddingVertical: 16,
   },
   subIcon: {
     marginTop: -4,

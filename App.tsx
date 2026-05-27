@@ -8,6 +8,7 @@ import migrations from './src/drizzle/migrations';
 import type { RootStackParamList } from './src/navigation/types';
 import { ArchiveScreen } from './src/screens/ArchiveScreen';
 import { CreateTaskScreen } from './src/screens/CreateTaskScreen';
+import { SkipScreen } from './src/screens/SkipScreen';
 import { TaskScreen } from './src/screens/TaskScreen';
 import { VoidScreen } from './src/screens/VoidScreen';
 
@@ -66,6 +67,11 @@ export default function App() {
           name="Task"
           component={TaskScreen}
           options={{ title: 'Your Task' }}
+        />
+        <Stack.Screen
+          name="SkipTask"
+          component={SkipScreen}
+          options={{ title: 'Skip & Requeue' }}
         />
         <Stack.Screen
           name="Archive"

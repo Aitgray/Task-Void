@@ -4,6 +4,7 @@ export type RootStackParamList = {
   Void: undefined;
   CreateTask: undefined;
   Task: { taskId: string };
+  SkipTask: { taskId: string };
   Archive: undefined;
 };
 
