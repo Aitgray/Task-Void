@@ -6,6 +6,7 @@ export type RootStackParamList = {
   Task: { taskId: string };
   SkipTask: { taskId: string };
   Archive: undefined;
+  Settings: undefined;
 };
 
 export type VoidNavProp = NativeStackNavigationProp<RootStackParamList, 'Void'>;

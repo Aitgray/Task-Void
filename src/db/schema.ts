@@ -18,4 +18,5 @@ export const tasks = sqliteTable('tasks', {
   created_at: integer('created_at').notNull(),
   updated_at: integer('updated_at').notNull(),
   deleted_at: integer('deleted_at'),
+  encrypted: integer('encrypted').notNull().default(0),
 });

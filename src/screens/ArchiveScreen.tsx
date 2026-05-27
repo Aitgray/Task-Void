@@ -1,8 +1,11 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useState } from 'react';
 import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
+import { decryptTaskFields } from '../crypto';
 import { db } from '../db/client';
 import type { Task } from '../scheduler';
+import { useSession } from '../store';
+import { useTheme } from '../theme';
 
 async function runSearch(q: string): Promise<Task[]> {
   if (!q.trim()) {
@@ -32,6 +35,8 @@ async function runSearch(q: string): Promise<Task[]> {
 }
 
 export function ArchiveScreen() {
+  const theme = useTheme();
+  const encryptionKey = useSession((s) => s.encryptionKey);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Task[]>([]);
 
@@ -50,12 +55,13 @@ export function ArchiveScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <TextInput
-        style={styles.searchInput}
+        style={[styles.searchInput, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
         value={query}
         onChangeText={setQuery}
         placeholder="Search archive…"
+        placeholderTextColor={theme.subtext}
         autoCorrect={false}
         clearButtonMode="while-editing"
       />
@@ -63,56 +69,42 @@ export function ArchiveScreen() {
         data={results}
         keyExtractor={(item) => item.id}
         ListEmptyComponent={
-          <Text style={styles.empty}>
+          <Text style={[styles.empty, { color: theme.subtext }]}>
             {query.trim() ? 'No matches.' : 'Nothing archived yet.'}
           </Text>
         }
-        renderItem={({ item }) => (
-          <View style={styles.item}>
-            <Text style={styles.itemTitle}>{item.title}</Text>
-            <Text style={styles.itemMeta}>
-              {item.status} · {new Date(item.updated_at).toLocaleDateString()}
-            </Text>
-          </View>
+        renderItem={({ item }) => {
+          const display = decryptTaskFields(item, encryptionKey);
+          return (
+            <View style={[styles.item, { backgroundColor: theme.bg }]}>
+              <Text style={[styles.itemTitle, { color: theme.text }]}>{display.title}</Text>
+              <Text style={[styles.itemMeta, { color: theme.subtext }]}>
+                {item.status} · {new Date(item.updated_at).toLocaleDateString()}
+                {item.encrypted ? ' · 🔒' : ''}
+              </Text>
+            </View>
+          );
+        }}
+        ItemSeparatorComponent={() => (
+          <View style={[styles.separator, { backgroundColor: theme.border }]} />
         )}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
   searchInput: {
     margin: 12,
     padding: 10,
     borderWidth: 1,
-    borderColor: '#ccc',
     borderRadius: 8,
     fontSize: 16,
   },
-  empty: {
-    textAlign: 'center',
-    color: '#888',
-    marginTop: 40,
-  },
-  item: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  itemTitle: {
-    fontSize: 16,
-  },
-  itemMeta: {
-    fontSize: 12,
-    color: '#888',
-    marginTop: 2,
-  },
-  separator: {
-    height: 1,
-    backgroundColor: '#eee',
-    marginLeft: 16,
-  },
+  empty: { textAlign: 'center', marginTop: 40 },
+  item: { paddingHorizontal: 16, paddingVertical: 12 },
+  itemTitle: { fontSize: 16 },
+  itemMeta: { fontSize: 12, marginTop: 2 },
+  separator: { height: 1, marginLeft: 16 },
 });
